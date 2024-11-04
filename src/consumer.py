@@ -1,9 +1,21 @@
-import json
+# Copyright (C), 2024-2025, bl33h, Mendezg1
+# FileName: consumer.py
+# Author: Sara Echeverria, Ricardo Méndez
+# Version: I
+# Creation: 03/11/2024
+# Last modification: 03/11/2024
+
+import numpy as np
 from kafka import KafkaConsumer
 import matplotlib.pyplot as plt
 
 # enable interactive plotting
-plt.ion()  
+plt.ion()
+
+# sensor ranges as defined in the producer
+temperature_min, temperature_max = 0, 110
+humidity_min, humidity_max = 0, 100
+wind_directions = ['N', 'NO', 'O', 'SO', 'S', 'SE', 'E', 'NE']
 
 # kafka consumer configuration
 consumer = KafkaConsumer(
@@ -11,16 +23,30 @@ consumer = KafkaConsumer(
     group_id='foo2',
     bootstrap_servers='164.92.76.15:9092',
     auto_offset_reset='earliest',
-    value_deserializer=lambda x: json.loads(x.decode('utf-8'))
+    # Receive bytes directly
+    value_deserializer=lambda x: x  
 )
 
+# initialize lists to store the decoded data
 all_temperature = []
 all_humidity = []
 all_wind_direction = []
 
-def plotAllData(temperature, humidity, wind_direction):
-    """plot temperature, humidity, and wind direction data in real-time."""
+def decodeData(encoded_data):
+    """Decode 3 bytes of data back into temperature, humidity, and wind direction."""
     
+    packed_data = int.from_bytes(encoded_data, 'big')
+    temp_encoded = (packed_data >> 16) & 0xFF
+    humid_encoded = (packed_data >> 8) & 0xFF
+    wind_encoded = packed_data & 0x07
+    
+    temperature = temp_encoded / 255 * (temperature_max - temperature_min) + temperature_min
+    humidity = humid_encoded / 255 * (humidity_max - humidity_min) + humidity_min
+    wind_direction = wind_directions[wind_encoded]
+    
+    return temperature, humidity, wind_direction
+
+def plotAllData(temperature, humidity, wind_direction):
     plt.clf()
     plt.subplot(3, 1, 1)
     plt.plot(temperature, label='Temperature (°C)')
@@ -34,19 +60,12 @@ def plotAllData(temperature, humidity, wind_direction):
     plt.pause(0.05)
 
 for message in consumer:
-    payload = message.value
-    
-    # debug: print each message received
-    print("Received message:", payload)  
-
-    temperature = payload.get('temperature', 0)
-    humidity = payload.get('humidity', 0)
-    wind_direction = payload.get('windDirection', 'N/A')
-
+    temperature, humidity, wind_direction = decodeData(message.value)
+    print(f"Received message: Temp={temperature}, Humidity={humidity}, Wind={wind_direction}")
     all_temperature.append(temperature)
     all_humidity.append(humidity)
     all_wind_direction.append(wind_direction)
-
+    
     plotAllData(all_temperature, all_humidity, all_wind_direction)
 
 plt.show()
